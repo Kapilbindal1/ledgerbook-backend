@@ -1,0 +1,213 @@
+org: ledgerbook
+app: ledgerbook
+useDotenv: true
+service: ledgerbook-backend
+frameworkVersion: '3'
+provider:
+  name: aws
+  runtime: nodejs14.x
+  region: ap-southeast-1
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DescribeTable
+        - dynamodb:DeleteItem
+        - lambda:InvokeFunction
+        - ssm:GetParameters
+        - ssm:GetParameter
+        - cognito-idp:ListUsers
+        - cognito-idp:AdminUpdateUserAttributes
+        - cognito-idp:AdminDeleteUser
+      Resource: '*'
+functions:
+  createUser:
+    handler: api/user.createUser
+    events:
+      - http:
+          path: /createUser
+          method: post
+          cors: true
+  sendEmail:
+    handler: api/user.sendEmail
+    events:
+      - http:
+          path: /sendEmail
+          method: post
+          cors: true
+  sendOtp:
+    handler: api/user.sendOtp
+    memorySize: 128
+    description: Get a user by name and password
+    events:
+      - http:
+          path: /sendOtp
+          method: get
+          cors: true
+  validateUser:
+    handler: api/user.validateUser
+    memorySize: 128
+    description: Get a user by name and password
+    events:
+      - http:
+          path: /validateUser
+          method: post
+          cors: true
+  getUser:
+    handler: api/user.getUser
+    memorySize: 128
+    description: Get a user by phone no
+    events:
+      - http:
+          path: /getUser
+          method: get
+          cors: true
+
+  updateUser:
+    handler: api/user.updateUser
+    memorySize: 128
+    description: update a user by userid
+    events:
+      - http:
+          path: /updateUser/{id}
+          method: post
+          cors: true
+  createCustomer:
+    handler: api/customer.createCustomer
+    memorySize: 128
+    description: create new customer
+    events:
+      - http:
+          path: /createCustomer
+          method: post
+          cors: true
+  getCustomers:
+    handler: api/customer.getCustomers
+    memorySize: 128
+    description: getCustomers
+    events:
+      - http:
+          path: /getCustomers/{id}
+          method: get
+          cors: true
+  createTransaction:
+    handler: api/transaction.createTransaction
+    memorySize: 128
+    description: createTransaction
+    events:
+      - http:
+          path: /createTransaction
+          method: post
+          cors: true
+  getTransactions:
+    handler: api/transaction.getTransactions
+    memorySize: 128
+    description: getTransactions
+    events:
+      - http:
+          path: /getTransactions/{customerId}
+          method: get
+          cors: true
+  getPreSignedUrl:
+    handler: api/transaction.getPreSignedUrl
+    memorySize: 128
+    description: getPreSignedUrl
+    events:
+      - http:
+          path: /getPreSignedUrl
+          method: get
+          cors: true
+  getTransactionsReport:
+    handler: api/transaction.getTransactionsReport
+    memorySize: 128
+    description: getTransactionsReport
+    events:
+      - http:
+          path: /getTransactionsReport
+          method: get
+          cors: true
+resources:
+  Resources:
+    UsersDynamoDbTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Delete
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: 'id'
+            AttributeType: 'S'
+        KeySchema:
+          - AttributeName: 'id'
+            KeyType: 'HASH'
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: 'users-table'
+    OtpTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Delete
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: 'phoneNo'
+            AttributeType: 'S'
+        KeySchema:
+          - AttributeName: 'phoneNo'
+            KeyType: 'HASH'
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: 'otp-table'
+    TransactionsTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Delete
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: 'id'
+            AttributeType: 'S'
+          - AttributeName: 'customerId'
+            AttributeType: 'S'
+          - AttributeName: 'createdAt'
+            AttributeType: 'N'
+        KeySchema:
+          - AttributeName: 'id'
+            KeyType: 'HASH'
+        GlobalSecondaryIndexes:
+          - IndexName: customerIdIdx
+            KeySchema:
+              - AttributeName: 'customerId'
+                KeyType: 'HASH'
+              - AttributeName: 'createdAt'
+                KeyType: 'RANGE'
+            Projection:
+              ProjectionType: 'ALL'
+        BillingMode: PAY_PER_REQUEST
+        TableName: 'transactions-table'
+    CustomersTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Delete
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: 'id'
+            AttributeType: 'S'
+          - AttributeName: 'userId'
+            AttributeType: 'S'
+        KeySchema:
+          - AttributeName: 'id'
+            KeyType: 'HASH'
+        GlobalSecondaryIndexes:
+          - IndexName: userIdIdx
+            KeySchema:
+              - AttributeName: 'userId'
+                KeyType: 'HASH'
+            Projection:
+              ProjectionType: 'ALL'
+            # ProvisionedThroughput:
+            #   ReadCapacityUnits: 5
+            #   WriteCapacityUnits: 5
+        BillingMode: PAY_PER_REQUEST
+        TableName: 'customers-table'
+plugins:
+  - serverless-offline
