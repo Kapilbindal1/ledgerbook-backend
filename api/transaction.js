@@ -275,7 +275,7 @@ module.exports.getTransactionsReport = async (event, context, callback) => {
     });
     return sendFailureResponse(body);
   }
-  const {customerId, type} = event.queryStringParameters;
+  const {customerId, type = 'csv'} = event.queryStringParameters;
 
   const customerParams = {
     TableName: 'customers-table',
@@ -288,8 +288,8 @@ module.exports.getTransactionsReport = async (event, context, callback) => {
     const customerResult = await dynamoDb.get(customerParams).promise();
     let params = getTransactionsByCustomerId(customerId);
 
-    if (event.queryStringParameters.fromDate && event.queryStringParameters.toDate) {
-      const {toDate, fromDate} = event.queryStringParameters;
+    if (event.queryStringParameters.fromDate) {
+      const {toDate = Date.now(), fromDate} = event.queryStringParameters;
       params = getReportsByDateRange(customerId, fromDate, toDate);
     }
     console.log('paramspgetReportsByDateRangearams', params);
@@ -309,7 +309,7 @@ module.exports.getTransactionsReport = async (event, context, callback) => {
     } else {
       const body = JSON.stringify({
         message: 'Transactions not found',
-        status: 400,
+        status: 200,
       });
       return sendFailureResponse(body);
     }

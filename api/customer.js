@@ -12,7 +12,13 @@ module.exports.createCustomer = async (event) => {
   parametersReceived.createdAt = Date.now();
   parametersReceived.balance = parametersReceived?.balance || 0;
   console.log('parametersReceived11', parametersReceived);
-
+  if (!parametersReceived?.userId) {
+    const body = JSON.stringify({
+      error: 'userId is mandatory to send',
+      status: 400,
+    });
+    return sendFailureResponse(body);
+  }
   const params = {
     TableName: 'customers-table',
     Item: parametersReceived,

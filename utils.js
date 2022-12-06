@@ -23,7 +23,7 @@ module.exports.sendFailureResponse = (body) => {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'OPTIONS,POST, GET',
     },
-    statusCode: 400,
+    statusCode: body?.status || 400,
     body: body,
   };
 };

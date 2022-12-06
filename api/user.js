@@ -16,6 +16,41 @@ const hashPassword = async (password) => {
 
   if (hash) return hash;
 };
+const updateOtpTable = async (OTP, phoneNumber) => {
+  console.log('update otp table');
+  const params = {
+    TableName: 'otp-table',
+    Key: {
+      phoneNo: phoneNumber,
+    },
+  };
+  const result = await dynamoDb.get(params).promise();
+  if (result) {
+    const params = {
+      TableName: 'otp-table',
+      Key: {
+        phoneNo: phoneNumber,
+      },
+      UpdateExpression: 'SET otp = :otp, createdAt = :createdAt',
+      ExpressionAttributeValues: {
+        ':otp': OTP,
+        ':createdAt': Date.now(),
+      },
+    };
+
+    let updatedOtpTableData = await dynamoDb.update(params).promise();
+    console.log('updatedOtpTableDataresponse', updatedOtpTableData);
+  } else {
+    const params = {
+      TableName: 'otp-table',
+      Item: {otp: OTP, mobileNo: phoneNumber, createdAt: Date.now()},
+    };
+    await dynamoDb.put(params).promise();
+  }
+  console.log('ppppresponseresponse', result);
+  const body = JSON.stringify({message: 'OTP send successfully', otp: OTP, status: 200});
+  return sendSuccessResponse(body);
+};
 
 module.exports.createUser = async (event) => {
   const parametersReceived = JSON.parse(event.body);
@@ -75,58 +110,35 @@ const sendOtpMessage = async (response, phoneNumber) => {
     MessageAttributes: {'AWS.SNS.SMS.SMSType': {DataType: 'String', StringValue: 'Transactional'}},
   };
   console.log('responseresponse', response);
-  const res = await new Promise((resolve, reject) => {
-    sns.publish(snsParams, async (err, data) => {
-      if (err) {
-        console.log('error-> ' + err + '-' + phoneNumber + '-' + JSON.stringify(snsParams.params));
-        response = {
-          headers: {
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'OPTIONS,POST, GET',
-          },
-          statusCode: 400,
-          body: JSON.stringify({error: 'Something went wrong', otp: OTP, status: 400}),
-        };
-        resolve(response);
-      } else {
-        console.log('update otp table');
-        const params = {
-          TableName: 'otp-table',
-          Key: {
-            phoneNo: phoneNumber,
-          },
-        };
-        const result = await dynamoDb.get(params).promise();
-        if (result) {
-          const params = {
-            TableName: 'otp-table',
-            Key: {
-              phoneNo: phoneNumber,
-            },
-            UpdateExpression: 'SET otp = :otp, createdAt = :createdAt',
-            ExpressionAttributeValues: {
-              ':otp': OTP,
-              ':createdAt': Date.now(),
-            },
-          };
 
-          let updatedOtpTableData = await dynamoDb.update(params).promise();
-          console.log('updatedOtpTableDataresponse', updatedOtpTableData);
-        } else {
-          const params = {
-            TableName: 'otp-table',
-            Item: {otp: OTP, mobileNo: phoneNumber, createdAt: Date.now()},
+  // if sns service active
+  if (process.env.environment === 'PROD') {
+    const res = await new Promise((resolve, reject) => {
+      sns.publish(snsParams, async (err, data) => {
+        if (err) {
+          console.log('error-> ' + err + '-' + phoneNumber + '-' + JSON.stringify(snsParams.params));
+          response = {
+            headers: {
+              'Access-Control-Allow-Headers': 'Content-Type',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'OPTIONS,POST, GET',
+            },
+            statusCode: 400,
+            body: JSON.stringify({error: 'Something went wrong', otp: OTP, status: 400}),
           };
-          await dynamoDb.put(params).promise();
+          resolve(response);
+        } else {
+          const res = updateOtpTable(OTP, phoneNumber);
+          resolve(res);
         }
-        console.log('ppppresponseresponse', result, data);
-        const body = JSON.stringify({message: 'OTP send successfully', otp: OTP, status: 200});
-        resolve(sendSuccessResponse(body));
-      }
+      });
     });
-  });
-  return res;
+    return res;
+  } else {
+    console.log('dev environment');
+    const res = updateOtpTable(OTP, phoneNumber);
+    return res;
+  }
 };
 
 module.exports.getUser = async (event, context) => {
