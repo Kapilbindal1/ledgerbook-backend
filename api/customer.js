@@ -4,36 +4,68 @@ const {getCustomersByUserId} = require('./customer.query');
 const {sendSuccessResponse, sendFailureResponse} = require('../utils');
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
-module.exports.createCustomer = async (event) => {
-  const parametersReceived = JSON.parse(event.body);
-  const {fullName} = parametersReceived;
-  const customerId = md5(fullName);
-  parametersReceived.id = customerId;
-  parametersReceived.createdAt = Date.now();
-  parametersReceived.balance = parametersReceived?.balance || 0;
-  console.log('parametersReceived11', parametersReceived);
-  if (!parametersReceived?.userId) {
-    const body = JSON.stringify({
-      error: 'userId is mandatory to send',
-      status: 400,
-    });
-    return sendFailureResponse(body);
-  }
-  const params = {
+const checkIfCustomerAlreadyExist = async (phoneNumber) => {
+  const userParams = {
     TableName: 'customers-table',
-    Item: parametersReceived,
+    FilterExpression: 'phone = :phone',
+    ExpressionAttributeValues: {
+      ':phone': phoneNumber,
+    },
   };
-  const result = await dynamoDb.put(params).promise();
-  console.log('resultresult', result);
-  const body = JSON.stringify({
-    message: 'Added successfully',
-    status: 200,
-    customerId: customerId,
-  });
-  if (result) {
-    return sendSuccessResponse(body);
-  } else {
-    sendFailureResponse("Couldn't add customer details.");
+  const userData = await dynamoDb.scan(userParams).promise();
+  return userData;
+};
+
+module.exports.createCustomer = async (event) => {
+  try {
+    const parametersReceived = JSON.parse(event.body);
+    const {fullName, phone} = parametersReceived;
+    // const customerId = md5(fullName);
+    const customerId = await md5(phone);
+    const phoneNumber = `+91${phone.trim()}`;
+
+    const ifAlreadyCustomer = await checkIfCustomerAlreadyExist(phoneNumber);
+    console.log('ifAlreadyCustomer', ifAlreadyCustomer);
+    if (ifAlreadyCustomer && ifAlreadyCustomer?.Items.length) {
+      const body = JSON.stringify({
+        error: 'User already exist',
+        status: 400,
+        // customer: ifAlreadyCustomer.Items[0],
+      });
+      return sendFailureResponse(body);
+    }
+    parametersReceived.phone = phoneNumber;
+
+    parametersReceived.id = customerId;
+    parametersReceived.createdAt = Date.now();
+    parametersReceived.balance = parametersReceived?.balance || 0;
+    console.log('parametersReceived11', parametersReceived);
+    if (!parametersReceived?.userId) {
+      const body = JSON.stringify({
+        error: 'userId is mandatory to send',
+        status: 400,
+      });
+      return sendFailureResponse(body);
+    }
+    const params = {
+      TableName: 'customers-table',
+      Item: parametersReceived,
+    };
+    const result = await dynamoDb.put(params).promise();
+    console.log('resultresult', result);
+    const body = JSON.stringify({
+      message: 'Added successfully',
+      status: 200,
+      customerId: customerId,
+    });
+    if (result) {
+      return sendSuccessResponse(body);
+    } else {
+      sendFailureResponse("Couldn't add customer details.");
+    }
+  } catch (err) {
+    const body = JSON.stringify({error: 'Customer cannot be created', status: 400});
+    response = sendFailureResponse(body);
   }
 };
 

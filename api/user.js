@@ -5,9 +5,9 @@ const {sendSuccessResponse, sendFailureResponse} = require('../utils');
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 const parameters = require('../dynamo/parameters');
 var sns = new AWS.SNS({
-  region: 'ap-southeast-1',
-  accessKeyId: 'AKIAXKR26MDHMWBO2352',
-  secretAccessKey: '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',
+  region: process.env.REGION,
+  accessKeyId: process.env.ACCESS_KEY_ID,
+  secretAccessKey: process.env.SECRET_ACCESS_KEY,
 });
 
 const hashPassword = async (password) => {
@@ -52,49 +52,74 @@ const updateOtpTable = async (OTP, phoneNumber) => {
   return sendSuccessResponse(body);
 };
 
-module.exports.createUser = async (event) => {
+module.exports.checkContent = (event) => {
   const parametersReceived = JSON.parse(event.body);
-  const idHash = await hashPassword(parametersReceived.phoneNo);
-  const passwordHash = await hashPassword(parametersReceived.password);
-  parametersReceived.id = idHash;
-  const {phoneNo} = parametersReceived;
-  console.log('parametersReceived11', parametersReceived);
-  const phoneNumber = `+91${phoneNo.trim()}`;
-  console.log('phoneNumber', phoneNumber);
+  console.log('checkContentcheckContent', parametersReceived, 'queryStringParameters', event.queryStringParameters, 'pathParameters', event.pathParameters);
+  const body = JSON.stringify({message: 'check checked', status: 200});
+  return sendSuccessResponse(body);
+};
 
-  parametersReceived.password = passwordHash;
-  parametersReceived.phoneNo = phoneNumber;
-  console.log('parametersReceived', parametersReceived);
-  const params = {
-    TableName: 'users-table',
-    Item: parametersReceived,
-  };
-  const result = await dynamoDb.put(params).promise();
-  console.log('resultresult', result);
-  // Call DynamoDB to add the item to the table
-  const getUserParams = {
-    TableName: 'users-table',
-    Key: {
-      id: idHash,
-    },
-    // AttributesToGet: ['id'],
-  };
-  const userData = await dynamoDb.get(getUserParams).promise();
-  console.log('userData', userData);
-  if (userData) {
-    delete userData.Item['password'];
-  }
-  body = JSON.stringify({
-    message: 'Added successfully',
-    status: 200,
-    user: userData.Item,
-  });
-  if (result) {
-    console.log('Body==>', body);
-    return sendSuccessResponse(body);
-  } else {
-    sendFailureResponse("Couldn't add user details.");
-    // callback(new Error("Couldn't add user details."));
+module.exports.createUser = async (event) => {
+  try {
+    const parametersReceived = JSON.parse(event.body);
+    const idHash = await hashPassword(parametersReceived.phoneNo);
+    const passwordHash = await hashPassword(parametersReceived.password);
+    parametersReceived.id = idHash;
+    parametersReceived.ownerId = parametersReceived?.ownerId || 'null';
+    parametersReceived.createdAt = Date.now();
+
+    const {phoneNo} = parametersReceived;
+    console.log('parametersReceived11', parametersReceived);
+    const phoneNumber = `+91${phoneNo}`;
+    console.log('phoneNumber', phoneNumber);
+
+    parametersReceived.password = passwordHash;
+    parametersReceived.phoneNo = phoneNumber;
+    const ifUser = await checkIfUserAlreadyExist(phoneNumber);
+    console.log('ifUserifUser', ifUser);
+    if (ifUser && ifUser?.Items.length) {
+      const body = JSON.stringify({
+        error: 'User already exist',
+        status: 400,
+        // user: ifUser.Items[0],
+      });
+      return sendFailureResponse(body);
+    }
+    console.log('parametersReceived', parametersReceived);
+    const params = {
+      TableName: 'users-table',
+      Item: parametersReceived,
+    };
+    const result = await dynamoDb.put(params).promise();
+    console.log('resultresult', result);
+    // Call DynamoDB to add the item to the table
+    const getUserParams = {
+      TableName: 'users-table',
+      Key: {
+        id: idHash,
+      },
+      // AttributesToGet: ['id'],
+    };
+    const userData = await dynamoDb.get(getUserParams).promise();
+    console.log('userData', userData);
+    if (userData) {
+      delete userData.Item['password'];
+    }
+    body = JSON.stringify({
+      message: 'Added successfully',
+      status: 200,
+      user: userData.Item,
+    });
+    if (result) {
+      console.log('Body==>', body);
+      return sendSuccessResponse(body);
+    } else {
+      sendFailureResponse("Couldn't add user details.");
+      // callback(new Error("Couldn't add user details."));
+    }
+  } catch (err) {
+    const body = JSON.stringify({error: 'User cannot be created', status: 400});
+    response = sendFailureResponse(body);
   }
 };
 
@@ -141,10 +166,7 @@ const sendOtpMessage = async (response, phoneNumber) => {
   }
 };
 
-module.exports.getUser = async (event, context) => {
-  const {phoneNo} = event.queryStringParameters;
-  const phoneNumber = `+91${phoneNo.trim()}`;
-  let response = {};
+const checkIfUserAlreadyExist = async (phoneNumber) => {
   const userParams = {
     TableName: 'users-table',
     FilterExpression: 'phoneNo = :phoneNo',
@@ -153,6 +175,14 @@ module.exports.getUser = async (event, context) => {
     },
   };
   const userData = await dynamoDb.scan(userParams).promise();
+  return userData;
+};
+
+module.exports.getUser = async (event, context) => {
+  const {phoneNo} = event.queryStringParameters;
+  const phoneNumber = `+91${phoneNo.trim()}`;
+  let response = {};
+  const userData = checkIfUserAlreadyExist(phoneNumber);
   if (userData && userData?.Items.length) {
     const body = JSON.stringify({message: 'user found successfully', user: userData.Items[0], status: 200});
     response = sendSuccessResponse(body);
@@ -174,7 +204,7 @@ module.exports.sendOtp = async (event, context) => {
     console.log('phoneNophoneNo', phoneNo);
     if (phoneNo && phoneNo.length === 10) {
       const phoneNumber = `+91${phoneNo.trim()}`;
-      console.log('process.env.AWS_DEFAULT_REGION', process.env.AWS_ACCESS_KEY_ID, process.env.AWS_DEFAULT_REGION);
+      console.log('process.env.AWS_DEFAULT_REGION', process.env.ACCESS_KEY_ID, process.env.REGION);
       const snsResponse = await sendOtpMessage(response, phoneNumber);
       response = snsResponse;
     } else {
@@ -186,22 +216,22 @@ module.exports.sendOtp = async (event, context) => {
 };
 
 module.exports.validateUser = async (event, context, callback) => {
-  const parametersReceived = JSON.parse(event.body);
-  const {otp, phoneNo} = parametersReceived;
-  console.log('parametersReceived11', otp);
-  const phoneNumber = `+91${phoneNo.trim()}`;
-
-  const otpParams = {
-    TableName: 'otp-table',
-    FilterExpression: 'phoneNo = :phoneNo',
-    ExpressionAttributeValues: {
-      ':phoneNo': phoneNumber,
-    },
-  };
-  console.log('otpData', otpParams);
-
-  var usersResult;
   try {
+    const parametersReceived = JSON.parse(event.body);
+    const {otp, phoneNo} = parametersReceived;
+    console.log('parametersReceived11', otp);
+    const phoneNumber = `+91${phoneNo.trim()}`;
+
+    const otpParams = {
+      TableName: 'otp-table',
+      FilterExpression: 'phoneNo = :phoneNo',
+      ExpressionAttributeValues: {
+        ':phoneNo': phoneNumber,
+      },
+    };
+    console.log('otpData', otpParams);
+
+    var usersResult;
     // Do scan
     otpResult = await dynamoDb.scan(otpParams).promise();
     console.log('otpResult', otpResult);
@@ -247,6 +277,8 @@ module.exports.validateUser = async (event, context, callback) => {
         };
 
         usersResult = await dynamoDb.scan(userParams).promise();
+
+        //use getuser here
         console.log('usersResultusersResult', usersResult);
         if (usersResult?.Items.length) {
           delete usersResult.Items[0]['password'];
@@ -281,7 +313,12 @@ module.exports.validateUser = async (event, context, callback) => {
     }
   } catch (err) {
     console.error('Fetch error:', err);
-    callback(new Error("Couldn't retrieve user details."));
+    body = JSON.stringify({
+      error: 'Couldnt retrieve user details.',
+      status: 400,
+    });
+    return sendFailureResponse(body);
+    // callback(new Error("Couldn't retrieve user details."));
   }
 };
 // module.exports.getUser = async (event, context, callback) => {
