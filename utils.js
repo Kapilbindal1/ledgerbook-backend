@@ -7,11 +7,11 @@
 module.exports.sendSuccessResponse = (body) => {
   return {
     headers: {
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'OPTIONS,POST, GET',
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "OPTIONS,POST, GET",
     },
-    statusCode: 200,
+    statusCode: body?.status || 200,
     body: body,
   };
 };
@@ -19,11 +19,23 @@ module.exports.sendSuccessResponse = (body) => {
 module.exports.sendFailureResponse = (body) => {
   return {
     headers: {
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'OPTIONS,POST, GET',
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "OPTIONS,POST, GET",
     },
     statusCode: body?.status || 400,
+    body: body,
+  };
+};
+
+module.exports.sendAlreadyExistSuccessResponse = (body) => {
+  return {
+    headers: {
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "OPTIONS,POST, GET",
+    },
+    statusCode: body?.status || 201,
     body: body,
   };
 };

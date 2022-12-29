@@ -1,45 +1,46 @@
-const AWS = require('aws-sdk');
-var md5 = require('md5');
-const {getCustomersByUserId} = require('./customer.query');
-const Papa = require('papaparse');
-var fs = require('fs');
-var ddb = new AWS.DynamoDB({apiVersion: '2012-08-10'});
+const AWS = require("aws-sdk");
+var md5 = require("md5");
+const {getCustomersByUserId} = require("./customer.query");
+const {checkIfOwnerExists} = require("./user");
+const Papa = require("papaparse");
+var fs = require("fs");
+var ddb = new AWS.DynamoDB({apiVersion: "2012-08-10"});
 const s3 = new AWS.S3({
   // apiVersion: '2006-03-01',
   // signatureVersion: 'v2',
-  region: 'ap-south-1',
-  accessKeyId: 'AKIAXKR26MDHMWBO2352',
-  secretAccessKey: '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',
+  region: "ap-south-1",
+  accessKeyId: "AKIAXKR26MDHMWBO2352",
+  secretAccessKey: "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",
 });
 // ...
 
-const {sendSuccessResponse, sendFailureResponse} = require('../utils');
-const PDFDocument = require('pdfkit');
-const {file} = require('pdfkit');
-const {Console} = require('console');
+const {sendSuccessResponse, sendFailureResponse} = require("../utils");
+const PDFDocument = require("pdfkit");
+const {file} = require("pdfkit");
+const {Console} = require("console");
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
 const updateCustomerBal = async (id, transId, amount, balance) => {
   const updateCustomerTableParams = {
-    TableName: 'customers-table',
+    TableName: process.env.CUSTOMERS_TABLE,
     Key: {
       id: id,
     },
-    UpdateExpression: 'set balance = :balance, last_trans_amount = :last_trans_amount,last_trans_date = :last_trans_date, last_trans_id = :last_trans_id',
+    UpdateExpression: "set balance = :balance, last_trans_amount = :last_trans_amount,last_trans_date = :last_trans_date, last_trans_id = :last_trans_id",
     ExpressionAttributeValues: {
-      ':balance': balance,
-      ':last_trans_amount': amount,
-      ':last_trans_date': Date.now(),
-      ':last_trans_id': transId,
+      ":balance": balance,
+      ":last_trans_amount": amount,
+      ":last_trans_date": Date.now(),
+      ":last_trans_id": transId,
     },
-    ReturnValues: 'UPDATED_NEW',
+    ReturnValues: "UPDATED_NEW",
   };
   try {
     let updatedCustomerData = await dynamoDb.update(updateCustomerTableParams).promise();
     if (updatedCustomerData) {
-      console.log('updatedCustomerData', updatedCustomerData);
+      console.log("updatedCustomerData", updatedCustomerData);
       const body = JSON.stringify({
-        message: 'Added successfully',
+        message: "Added successfully",
         status: 200,
         transaction_id: transId,
       });
@@ -47,7 +48,7 @@ const updateCustomerBal = async (id, transId, amount, balance) => {
       return sendSuccessResponse(body);
     } else {
       const body = JSON.stringify({
-        error: 'Unable to update customer balance',
+        error: "Unable to update customer balance",
         status: 400,
       });
       return sendFailureResponse(body);
@@ -55,7 +56,7 @@ const updateCustomerBal = async (id, transId, amount, balance) => {
   } catch (error) {
     console.log(error);
     const body = JSON.stringify({
-      error: 'Something went wrong',
+      error: "Something went wrong",
       status: 400,
     });
     return sendFailureResponse(body);
@@ -64,13 +65,23 @@ const updateCustomerBal = async (id, transId, amount, balance) => {
 
 module.exports.createTransaction = async (event) => {
   const parametersReceived = JSON.parse(event.body);
-  console.log('parametersReceived', parametersReceived);
+  console.log("createTransaction parametersReceived", parametersReceived);
   const {customerId, type, amount} = parametersReceived;
   const transId = md5(Date.now());
   parametersReceived.id = transId;
   parametersReceived.createdAt = Date.now();
+  parametersReceived.isDeleted = false;
+  const ifOwner = await checkIfOwnerExists(parametersReceived.userId);
+  console.log("ifOwnerifOwner", ifOwner);
+  if (!ifOwner.Item) {
+    const body = JSON.stringify({
+      error: "Owner not found",
+      status: 400,
+    });
+    return sendFailureResponse(body);
+  }
   const customerParams = {
-    TableName: 'customers-table',
+    TableName: process.env.CUSTOMERS_TABLE,
     Key: {
       id: customerId,
     },
@@ -78,12 +89,12 @@ module.exports.createTransaction = async (event) => {
 
   var response;
   const customerResult = await dynamoDb.get(customerParams).promise();
-  console.log('customerResult', customerResult);
+  console.log("customerResult", customerResult);
   if (customerResult && customerResult?.Item) {
     const {Item} = customerResult;
-    console.log('ItemItem', Item);
+    console.log("ItemItem", Item);
     let updatedBal = Item?.balance || 0;
-    if (type === 'CREDIT') {
+    if (type === "CREDIT") {
       updatedBal = updatedBal + amount;
     } else {
       updatedBal = updatedBal - amount;
@@ -91,10 +102,10 @@ module.exports.createTransaction = async (event) => {
     parametersReceived.updatedBal = updatedBal;
     parametersReceived.customerName = Item.fullName;
 
-    console.log('parametersReceived11', updatedBal, parametersReceived);
+    console.log("parametersReceived11", updatedBal, parametersReceived);
 
     const params = {
-      TableName: 'transactions-table',
+      TableName: process.env.TRANSACTIONS_TABLE,
       Item: parametersReceived,
     };
     const result = await dynamoDb.put(params).promise();
@@ -106,35 +117,93 @@ module.exports.createTransaction = async (event) => {
     }
   } else {
     const body = JSON.stringify({
-      error: 'Customer does not exist',
+      error: "Customer does not exist",
       status: 400,
     });
     return sendFailureResponse(body);
   }
 };
 
-const getTransactionsByCustomerId = (customerId, type) => {
-  console.log('customerId', customerId);
-
+const updateDeletedTransactionInCustomer = async (id, customerId) => {
   let object = {
-    KeyConditionExpression: '#customerIdIdx = :customerId',
-    IndexName: 'customerIdIdx',
+    KeyConditionExpression: "#customerIdIdx = :customerId",
+    IndexName: "customerIdIdx",
     ExpressionAttributeNames: {
-      '#customerIdIdx': 'customerId',
+      "#customerIdIdx": "customerId",
+    },
+    FilterExpression: "isDeleted = :isDeleted",
+    ExpressionAttributeValues: {
+      ":customerId": customerId,
+      ":isDeleted": false,
+    },
+    TableName: process.env.TRANSACTIONS_TABLE,
+    Limit: 5,
+    ScanIndexForward: false, //DESC ORDER, Set 'true' if u want asc order
+    TableName: process.env.TRANSACTIONS_TABLE,
+  };
+
+  const data = await dynamoDb.scan(object).promise();
+  console.log("datadata", data);
+  const getParams = {
+    TableName: process.env.TRANSACTIONS_TABLE,
+    FilterExpression: "isDeleted = :isDeleted",
+    Key: {
+      id: id,
     },
     ExpressionAttributeValues: {
-      ':customerId': customerId,
+      ":isDeleted": true,
     },
-    TableName: 'transactions-table',
+  };
+};
+
+module.exports.deleteTransaction = async (event, context, callback) => {
+  const {id} = event.pathParameters;
+
+  const deleteParams = {
+    TableName: process.env.TRANSACTIONS_TABLE,
+    Key: {
+      id: id,
+    },
+    UpdateExpression: "set isDeleted = :isDeleted",
+    ExpressionAttributeValues: {
+      ":isDeleted": true,
+    },
+    ReturnValues: "ALL_NEW",
+  };
+  const result = await dynamoDb.update(deleteParams).promise();
+  console.log("resultresult", result);
+  if (result) {
+    const {customerId, amount, type} = result.Attributes;
+    updateDeletedTransactionInCustomer(id, customerId, amount, type);
+    const body = JSON.stringify({message: "Transaction deleted successfully", status: 200});
+    return sendSuccessResponse(body);
+  }
+};
+
+const getTransactionsByCustomerId = (customerId, type) => {
+  console.log("customerId", customerId);
+
+  let object = {
+    KeyConditionExpression: "#customerIdIdx = :customerId",
+    IndexName: "customerIdIdx",
+    ExpressionAttributeNames: {
+      "#customerIdIdx": "customerId",
+    },
+    FilterExpression: "isDeleted = :isDeleted",
+    ExpressionAttributeValues: {
+      ":customerId": customerId,
+      ":isDeleted": false,
+    },
+    TableName: process.env.TRANSACTIONS_TABLE,
     // Limit: 1,
     ScanIndexForward: false, //DESC ORDER, Set 'true' if u want asc order
   };
   if (type) {
-    object.ExpressionAttributeValues = {...object.ExpressionAttributeValues, ':type': type.toUpperCase()};
-    object.ExpressionAttributeNames = {...object.ExpressionAttributeNames, '#type': 'type'};
-    object.FilterExpression = '#type = :type';
+    object.ExpressionAttributeValues = {...object.ExpressionAttributeValues, ":type": type.toUpperCase()};
+    object.ExpressionAttributeNames = {...object.ExpressionAttributeNames, "#type": "type", "#isDeleted": "isDeleted"};
+    object.FilterExpression = "#type = :type AND #isDeleted = :isDeleted";
   }
-  console.log('objectobject', object);
+  console.log("objectobject", object);
   return object;
   // return {
   //   KeyConditionExpression: '#customerIdIdx = :customerId',
@@ -155,18 +224,18 @@ const getTransactionsByCustomerId = (customerId, type) => {
 
 const getTransactionsOfCustomer = async (customerId, event) => {
   const params = getTransactionsByCustomerId(customerId, event.queryStringParameters?.type);
-  console.log(params, 'fjdskfjd');
+  console.log(params, "fjdskfjd");
   const data = await dynamoDb.query(params).promise();
-  console.log('datadata', data);
+  console.log("datadata", data);
   let response = {};
 
   if (data && data?.Items.length) {
-    const body = JSON.stringify({data: data.Items, status: 200, message: 'Transactions fetched successfully'});
+    const body = JSON.stringify({data: data.Items, status: 200, message: "Transactions fetched successfully"});
     return sendSuccessResponse(body);
   } else {
     const body = JSON.stringify({
       status: 200,
-      error: 'No transactions found',
+      error: "No transactions found",
     });
     return sendSuccessResponse(body);
   }
@@ -174,13 +243,13 @@ const getTransactionsOfCustomer = async (customerId, event) => {
 
 module.exports.getTransactions = async (event, context, callback) => {
   try {
-    console.log('llllllll');
-    console.log('event.pathParameters', event.pathParameters.customerId);
+    console.log("llllllll");
+    console.log("event.pathParameters", event.pathParameters.customerId);
     const {customerId} = event.pathParameters;
     return getTransactionsOfCustomer(customerId, event);
   } catch (err) {
     const body = JSON.stringify({
-      error: 'Something went wrong',
+      error: "Something went wrong",
       status: 400,
     });
     return sendFailureResponse(body);
@@ -189,21 +258,21 @@ module.exports.getTransactions = async (event, context, callback) => {
 module.exports.getPreSignedUrl = async () => {
   const fileName = Date.now().toString();
   const s3Params = {
-    Bucket: 'ledgerbook-transaction-assets',
+    Bucket: "ledgerbook-transaction-assets",
     Key: fileName,
     Expires: 60 * 60,
-    ContentType: 'application/octet-stream',
+    ContentType: "application/octet-stream",
   };
   // const url = await getPresignUrlPromiseFunction(s3, s3Params);
   // function getPresignUrlPromiseFunction(s3, s3Params): Promise<string>{
   try {
     const url = await new Promise((resolve, reject) => {
-      s3.getSignedUrl('putObject', s3Params, (err, url) => {
+      s3.getSignedUrl("putObject", s3Params, (err, url) => {
         err ? reject(err) : resolve(url);
       });
     });
     const body = JSON.stringify({
-      message: 'Presigned url fetched successfully',
+      message: "Presigned url fetched successfully",
       status: 200,
       url: url,
       fileUrl: `https://ledgerbook-transaction-assets.s3.ap-south-1.amazonaws.com/${fileName}`,
@@ -219,8 +288,8 @@ module.exports.getPreSignedUrl = async () => {
 };
 
 const getTransactionsByUserIds = async (userIds) => {
-  console.log('userIduserId', userIds);
-  let idStr = '';
+  console.log("userIduserId", userIds);
+  let idStr = "";
   userIds.forEach((id, index) => {
     if (index === userIds.length - 1) {
       idStr = idStr + "'" + id + "'";
@@ -228,15 +297,15 @@ const getTransactionsByUserIds = async (userIds) => {
       idStr += "'" + id + "',";
     }
   });
-  console.log('idStridStridStr', idStr);
-  const str = 'SELECT * FROM "transactions-table" WHERE "userId" IN [' + idStr + ']';
-  console.log('str: ', str);
+  console.log("idStridStridStr", idStr);
+  const str = 'SELECT * FROM "transactions-table" WHERE "userId" IN [' + idStr + "]";
+  console.log("str: ", str);
   const {Items = []} = await ddb
     .executeStatement({
       Statement: str,
     })
     .promise();
   const userTransactions = Items.map(AWS.DynamoDB.Converter.unmarshall);
-  console.log('userTransactionsuserTransactions', userTransactions);
+  console.log("userTransactionsuserTransactions", userTransactions);
   return userTransactions;
 };
