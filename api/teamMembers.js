@@ -31,3 +31,5 @@ module.exports.getTeamMembers = async (event) => {
   response = sendSuccessResponse(body);
   return response;
 };
+
+module.exports.getTeamMembersByUserId = getTeamMembersByUserId;

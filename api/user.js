@@ -1,6 +1,10 @@
 const AWS = require("aws-sdk");
 var md5 = require("md5");
 require("dotenv").config();
+const {getTeamMembersByUserId} = require("./teamMembers");
+
+const {getCustomersByIds, deleteCustomers} = require("./customer.query");
+
 const {sendSuccessResponse, sendFailureResponse} = require("../utils");
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 var ddb = new AWS.DynamoDB({apiVersion: "2012-08-10"});
@@ -636,50 +640,83 @@ const deleteTeamMembers = async (members) => {
 
 const deleteUserAllStuff = async (ownerId) => {
   try {
-    console.log("ownerIdownerId", ownerId);
-    const teamMemberParams = {
-      KeyConditionExpression: "#ownerIdIdx = :ownerId",
-      IndexName: "ownerIdIdx",
-      ExpressionAttributeNames: {
-        "#ownerIdIdx": "ownerId",
-      },
-      // FilterExpression: "isDeleted = :isDeleted",
-      ExpressionAttributeValues: {
-        ":ownerId": ownerId,
-        // ":isDeleted": false,
-      },
-      TableName: process.env.USERS_TABLE,
-    };
-    const ownerTeamMembers = await dynamoDb.query(teamMemberParams).promise();
+    // console.log("ownerIdownerId", ownerId);
+    // const teamMemberParams = {
+    //   KeyConditionExpression: "#ownerIdIdx = :ownerId",
+    //   IndexName: "ownerIdIdx",
+    //   ExpressionAttributeNames: {
+    //     "#ownerIdIdx": "ownerId",
+    //   },
+    //   // FilterExpression: "isDeleted = :isDeleted",
+    //   ExpressionAttributeValues: {
+    //     ":ownerId": ownerId,
+    //     // ":isDeleted": false,
+    //   },
+    //   TableName: process.env.USERS_TABLE,
+    // };
+    const params = getTeamMembersByUserId(ownerId);
+
+    const ownerTeamMembers = await dynamoDb.query(params).promise();
+    // const ownerTeamMembers = await dynamoDb.query(teamMemberParams).promise();
     console.log("ownerTeamMembers", ownerTeamMembers);
-    // batchDeleteUserTeamMembers(ownerTeamMembers);
+
     let allTransactionsDeleted = false;
     if (ownerTeamMembers && ownerTeamMembers.Items.length) {
       const allOwner_TeamMemberIds = ownerTeamMembers.Items.map((member) => member.id);
 
       allOwner_TeamMemberIds.push(ownerId);
+      const userCustomers = await getCustomersByIds(allOwner_TeamMemberIds);
+      console.log("lluserCustomers", userCustomers);
+      let customersDel = false;
+      if (userCustomers && userCustomers.length) {
+        console.log("1122userCustomersuserCustomers");
+        const customersDelResult = await deleteCustomers(userCustomers);
+        if (customersDelResult) {
+          customersDel = true;
+        }
+      } else {
+        customersDel = true;
+      }
       console.log("allOwner_TeamMemberIds", allOwner_TeamMemberIds, ownerId);
       // DELETE USER AND TEAM MEMBER TRANSACTIONS
       const result = await deleteAllTransactions(ownerId, allOwner_TeamMemberIds);
       // DELETE TEAM MEMBERS
       const teamMembersResult = await deleteTeamMembers(allOwner_TeamMemberIds);
       console.log("teamMembersResult", teamMembersResult, result);
-      if (teamMembersResult && result) {
+      if (teamMembersResult && result && customersDel) {
         const body = JSON.stringify({message: "User deleted successfully", status: 200});
         console.log("pppresultresult");
         return sendSuccessResponse(body);
+      } else {
+        const body = JSON.stringify({
+          error: "Error in deleting",
+          status: 400,
+        });
+        return sendFailureResponse(body);
       }
     } else {
+      const userCustomers = await getCustomersByIds([ownerId]);
+      console.log("customerParams99", userCustomers);
+      console.log("lluserCustomers", userCustomers);
+      let customersDel = false;
+      if (userCustomers && userCustomers.length) {
+        console.log("1122userCustomersuserCustomers");
+        const customersDelResult = await deleteCustomers(userCustomers);
+        if (customersDelResult) {
+          customersDel = true;
+        }
+        console.log("customersDelResult", customersDelResult);
+      } else {
+        customersDel = true;
+      }
       allTransactionsDeleted = await batchDeleteUserTransactions(ownerId);
-      if (allTransactionsDeleted) {
+      if (allTransactionsDeleted && customersDel) {
         return deleteOwnerById(ownerId);
       }
-
-      console.log("ownertransactionsDeleted", ownertransactionsDeleted);
     }
-    if (allTransactionsDeleted) {
-      const abc = await deleteOwnerById(ownerId);
-    }
+    // if (allTransactionsDeleted) {
+    //   const abc = await deleteOwnerById(ownerId);
+    // }
   } catch (err) {
     console.log("errerr", err);
   }

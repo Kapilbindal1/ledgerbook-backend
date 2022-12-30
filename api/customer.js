@@ -6,17 +6,16 @@ const {checkIfOwnerExists} = require("./user");
 
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
-const checkIfCustomerAlreadyExist = async (phoneNumber) => {
-  const userParams = {
-    TableName: process.env.CUSTOMERS_TABLE,
-    FilterExpression: "phone = :phone",
-    ExpressionAttributeValues: {
-      ":phone": phoneNumber,
-    },
-  };
-  const userData = await dynamoDb.scan(userParams).promise();
-  return userData;
-};
+// const checkIfCustomerAlreadyExist = async (customerId) => {
+//   const customerParams = {
+//     TableName: process.env.CUSTOMERS_TABLE,
+//     key: {
+//       id: customerId,
+//     },
+//   };
+//   const userData = await dynamoDb.scan(userParams).promise();
+//   return userData;
+// };
 
 module.exports.createCustomer = async (event) => {
   console.log("ppppppcreateCustomer");
@@ -30,7 +29,17 @@ module.exports.createCustomer = async (event) => {
 
     const phoneNumber = `+91${phone.trim()}`;
 
-    const ifAlreadyCustomer = await checkIfCustomerAlreadyExist(phoneNumber);
+    const customerParams = await getCustomerByCustomerId(customerId);
+    const ifAlreadyCustomer = await dynamoDb.get(customerParams).promise();
+    console.log("ifAlreadyCustomer", ifAlreadyCustomer);
+    if (ifAlreadyCustomer && ifAlreadyCustomer?.Item) {
+      const body = JSON.stringify({
+        error: "Customer already exist",
+        status: 201,
+        customer: ifAlreadyCustomer.Item,
+      });
+      return sendAlreadyExistSuccessResponse(body);
+    }
     const ifOwner = await checkIfOwnerExists(userId);
     console.log("ifOwner.Item", ifOwner);
     if (!ifOwner.Item) {
@@ -41,14 +50,7 @@ module.exports.createCustomer = async (event) => {
       return sendFailureResponse(body);
     }
     console.log("ifAlreadyCustomer", ifAlreadyCustomer);
-    if (ifAlreadyCustomer && ifAlreadyCustomer?.Items.length) {
-      const body = JSON.stringify({
-        error: "User already exist",
-        status: 201,
-        customer: ifAlreadyCustomer.Items[0],
-      });
-      return sendAlreadyExistSuccessResponse(body);
-    }
+
     parametersReceived.phone = phoneNumber;
     parametersReceived.isDeleted = false;
     parametersReceived.id = customerId;
