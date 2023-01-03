@@ -50,7 +50,7 @@ module.exports.createCustomer = async (event) => {
       return sendFailureResponse(body);
     }
     console.log("ifAlreadyCustomer", ifAlreadyCustomer);
-
+    parametersReceived.fullName = fullName.toLowerCase();
     parametersReceived.phone = phoneNumber;
     parametersReceived.isDeleted = false;
     parametersReceived.id = customerId;
@@ -195,11 +195,11 @@ module.exports.getCustomer = async (event, context, callback) => {
     return sendSuccessResponse(body);
   } else {
     const body = JSON.stringify({
-      status: 200,
+      status: 400,
       error: "No customer with this Id",
       data: [],
     });
-    return sendSuccessResponse(body);
+    return sendFailureResponse(body);
   }
 };
 

@@ -9,11 +9,12 @@ module.exports.getCustomersByUserId = (userId, options) => {
     IndexName: "userIdIdx",
     ExpressionAttributeNames: {
       "#userIdIdx": "userId",
+      // ":isDeleted": "isDeleted",
     },
-    FilterExpression: "isDeleted = :isDeleted",
+    // FilterExpression: "isDeleted = :isDeleted",
     ExpressionAttributeValues: {
       ":userId": userId,
-      ":isDeleted": false,
+      // ":isDeleted": false,
     },
     TableName: process.env.CUSTOMERS_TABLE,
     ProjectionExpression: "fullName, last_trans_date,other_details,last_trans_amount,createdAt,address,email ,last_trans_id, balance, image, userId,id, phone, creditLimit, defaultTransactionAmt",

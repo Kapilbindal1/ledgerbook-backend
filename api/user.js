@@ -51,12 +51,18 @@ const updateOtpTable = async (OTP, phoneNumber) => {
   } else {
     const params = {
       TableName: process.env.OTP_TABLE,
-      Item: {otp: OTP, mobileNo: phoneNumber, createdAt: Date.now()},
+      Item: {mobileNo: phoneNumber, createdAt: Date.now()},
+      otp: OTP,
     };
+
     await dynamoDb.put(params).promise();
   }
+  let body = JSON.stringify({message: "OTP send successfully", status: 200});
+
+  if (process.env.CURRENTSTAGE !== "prod") {
+    body = JSON.stringify({message: "OTP send successfully", status: 200, OTP: OTP});
+  }
   console.log("ppppresponseresponse", result);
-  const body = JSON.stringify({message: "OTP send successfully", status: 200, OTP: OTP});
   return sendSuccessResponse(body);
 };
 
@@ -205,6 +211,7 @@ const sendOtpMessage = async (response, phoneNumber) => {
           };
           resolve(response);
         } else {
+          console.log("sns service sent");
           const res = updateOtpTable(OTP, phoneNumber);
           resolve(res);
         }
