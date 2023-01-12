@@ -16,6 +16,8 @@ module.exports.getCustomersByUserId = (userId, options) => {
       ":userId": userId,
       // ":isDeleted": false,
     },
+    ScanIndexForward: false,
+
     TableName: process.env.CUSTOMERS_TABLE,
     ProjectionExpression: "fullName, last_trans_date,other_details,last_trans_amount,createdAt,address,email ,last_trans_id, balance, image, userId,id, phone, creditLimit, defaultTransactionAmt",
 
@@ -33,6 +35,7 @@ module.exports.getCustomerByCustomerId = (id, options) => {
     ExpressionAttributeValues: {
       ":isDeleted": false,
     },
+    ScanIndexForward: false,
   };
   return getParams;
 };

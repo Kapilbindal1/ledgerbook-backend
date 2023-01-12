@@ -1,9 +1,11 @@
 const AWS = require("aws-sdk");
 var md5 = require("md5");
-const {getCustomersByUserId} = require("./customer.query");
+const {getCustomersByUserId, getCustomerByCustomerId} = require("./customer.query");
 const {checkIfOwnerExists} = require("./user");
 const Papa = require("papaparse");
 var fs = require("fs");
+const moment = require("moment");
+
 var ddb = new AWS.DynamoDB({apiVersion: "2012-08-10"});
 const s3 = new AWS.S3({
   // apiVersion: '2006-03-01',
@@ -70,6 +72,8 @@ module.exports.createTransaction = async (event) => {
   const transId = md5(Date.now());
   parametersReceived.id = transId;
   parametersReceived.createdAt = Date.now();
+  parametersReceived.date = parseInt(parametersReceived?.date) || Date.now();
+  console.log("Date.now()", Date.now());
   parametersReceived.isDeleted = false;
   const ifOwner = await checkIfOwnerExists(parametersReceived.userId);
   console.log("ifOwnerifOwner", ifOwner);
@@ -111,6 +115,8 @@ module.exports.createTransaction = async (event) => {
     const result = await dynamoDb.put(params).promise();
 
     if (result) {
+      // updateWeeklyBal(amount, transId, customerId, userId);
+
       return updateCustomerBal(customerId, transId, amount, updatedBal);
     } else {
       callback(new Error("Couldn't add customer details."));
@@ -123,6 +129,76 @@ module.exports.createTransaction = async (event) => {
     return sendFailureResponse(body);
   }
 };
+
+// const updateWeeklyBal = async (amount, transId) => {
+//   const table = process.env.WEEKLYBAL_TABLE;
+//   // const str = `SELECT *  FROM "${table}" WHERE "weekDate" <= ${Date.now()} AND ORDER BY weekDate ASC`;
+//   var params1 = {
+//     TableName: table,
+//     FilterExpression: "#weekDate <= :weekDate",
+//     ExpressionAttributeNames: {
+//       "#weekDate": "weekDate",
+//     },
+//     // Limit: 1,
+//     ExpressionAttributeValues: {":weekDate": Date.now()},
+//     ScanIndexForward: false,
+//   };
+//   // const params1 = {
+//   //   // KeyConditionExpression: "#ownerIdIdx = :ownerId",
+//   //   // IndexName: "ownerIdIdx",
+//   //   // ExpressionAttributeNames: {
+//   //   //   "#dateadded": "ownerId",
+//   //   // },
+//   //   ExpressionAttributeNames: {
+//   //     "#weekDate": "weekDate",
+//   //   },
+//   //   FilterExpression: "#weekDate <= :weekDate",
+//   //   ExpressionAttributeValues: {
+//   //     ":weekDate": Date.now(),
+//   //   },
+//   //   ScanIndexForward: false, //DESC ORDER, Set 'true' if u want asc order
+
+//   //   TableName: process.env.WEEKLYBAL_TABLE,
+//   // };
+//   const data = await dynamoDb.scan(params1).promise();
+//   console.log("datadata", data, new Date());
+//   if (data?.Items && data.Items.length) {
+//     console.log("lllll", data?.Items?.[0]?.weekDate);
+//     const subscriptionDate = moment(new Date(data?.Items[0].weekDate), "DD-MM-YYYY");
+//     console.log("subscriptionDate", subscriptionDate);
+//     const nowDate = moment(new Date(), "DD-MM-YYYY");
+//     console.log("nowDatenowDate", nowDate);
+
+//     const diff = nowDate.diff(subscriptionDate, "days");
+//     console.log("diffdiff", diff);
+//   }
+
+//   // console.log("strstr11222", str);
+
+//   // const {Items = []} = await ddb
+//   //   .executeStatement({
+//   //     Statement: str,
+//   //   })
+//   //   .promise();
+//   // console.log("strstr", str);
+//   // const balItems = Items.map(AWS.DynamoDB.Converter.unmarshall);
+//   // console.log("balItemsbalItems", balItems);
+
+//   const parametersReceived = {
+//     updatedBal: amount,
+//     lastTransId: transId,
+//     id: Date.now().toString(),
+//     weekDate: Date.now(),
+//     customerId: customerId,
+//     userId: userId,
+//   };
+//   const params = {
+//     TableName: table,
+//     Item: parametersReceived,
+//   };
+//   const result = await dynamoDb.put(params).promise();
+//   console.log("updateWeeklyBalresultresult", result);
+// };
 
 const updateDeletedTransactionInCustomer = async (id, customerId) => {
   let object = {
@@ -223,6 +299,9 @@ const getTransactionsByCustomerId = (customerId, type) => {
 };
 
 const getTransactionsOfCustomer = async (customerId, event) => {
+  const customerParams = getCustomerByCustomerId(customerId);
+  const result = await dynamoDb.get(customerParams).promise();
+  console.log("resultresult", result);
   const params = getTransactionsByCustomerId(customerId, event.queryStringParameters?.type);
   console.log(params, "fjdskfjd");
   const data = await dynamoDb.query(params).promise();
@@ -230,7 +309,7 @@ const getTransactionsOfCustomer = async (customerId, event) => {
   let response = {};
 
   if (data && data?.Items.length) {
-    const body = JSON.stringify({data: data.Items, status: 200, message: "Transactions fetched successfully"});
+    const body = JSON.stringify({data: data.Items, status: 200, customerBalance: result?.Item?.balance, message: "Transactions fetched successfully"});
     return sendSuccessResponse(body);
   } else {
     const body = JSON.stringify({

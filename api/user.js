@@ -99,6 +99,7 @@ module.exports.createUser = async (event) => {
     const idHash = await hashPassword(parametersReceived.phoneNo);
     const passwordHash = await hashPassword(parametersReceived.password);
     parametersReceived.id = idHash;
+    parametersReceived.name = parametersReceived.name.toLowerCase();
     parametersReceived.createdAt = Date.now();
     parametersReceived.isDeleted = false;
     const {phoneNo} = parametersReceived;

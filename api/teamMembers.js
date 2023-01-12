@@ -15,6 +15,8 @@ const getTeamMembersByUserId = (ownerId, options) => {
       ":ownerId": ownerId,
       ":isDeleted": false,
     },
+    ScanIndexForward: false, //DESC ORDER, Set 'true' if u want asc order
+
     TableName: process.env.USERS_TABLE,
   };
 };
@@ -22,6 +24,12 @@ const getTeamMembersByUserId = (ownerId, options) => {
 module.exports.getTeamMembers = async (event) => {
   const {id} = event.pathParameters;
   const params = getTeamMembersByUserId(id);
+  if (event.queryStringParameters?.search && event.queryStringParameters?.search !== "") {
+    params.ExpressionAttributeNames = {...params.ExpressionAttributeNames, "#name": "name"};
+    params.FilterExpression = "isDeleted = :isDeleted and contains(#name, :name)";
+    params.ExpressionAttributeValues = {...params.ExpressionAttributeValues, ":name": event.queryStringParameters.search.toLowerCase()};
+  }
+  console.log("paramsparams", params);
   const userData = await dynamoDb.query(params).promise();
   const body = JSON.stringify({
     status: 200,

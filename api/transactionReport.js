@@ -4,6 +4,7 @@ var ddb = new AWS.DynamoDB({apiVersion: "2012-08-10"});
 const PDFDocument = require("pdfkit-table");
 const fs = require("fs");
 const moment = require("moment");
+var momentTime = require("moment-timezone");
 
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 const s3 = new AWS.S3({
@@ -14,8 +15,9 @@ const s3 = new AWS.S3({
   secretAccessKey: "YjFp4iHoXS/AAy6M2y0tJ/3CIfis2vHdKaISF4KV",
 });
 
-function generateHeader(doc) {
+function generateHeader(doc, length) {
   doc.image("logo.png", 50, 45, {width: 50}).fillColor("#444444").fontSize(20).text("Ledgerbook Inc.", 110, 57).moveDown();
+  // .text(`Total transactions: ${length}`, 110, 100).moveDown();
 
   //   doc.image('logo.png', 50, 45, {width: 50}).fillColor('#444444').fontSize(20).text('Ledgerbook Inc.', 110, 57).fontSize(10).text(`Name: ${customer.fullName}`, 200, 65, {align: 'right'}).text(`Address: ${customer.address}`, 200, 80, {align: 'right'}).moveDown().text(`Phone: ${customer.phone}`, 200, 100, {align: 'right'}).moveDown();
 }
@@ -26,19 +28,31 @@ const createPdf = async (items, type) => {
     const newArr = [];
 
     const columns = [
+      {label: "Sr No.", property: "srno", headerColor: "#2C53D6", headerOpacity: 0.5},
       {label: "Date", property: "date", headerColor: "#2C53D6", headerOpacity: 0.5},
+      {label: "User name", property: "userName", headerColor: "#FF0000", headerOpacity: 0.5},
       {label: "Customer Name", property: "name", headerColor: "#FF0000", headerOpacity: 0.5},
       {label: "Debit", property: "debit", headerColor: "#2C53D6", headerOpacity: 0.5},
       {label: "Credit", property: "credit", headerColor: "#FF0000", headerOpacity: 0.5},
       {label: "Balance", property: "balance", headerColor: "#2C53D6", headerOpacity: 0.5},
     ];
-
-    items.map((item) => {
+    let debitAmount = 0;
+    let creditAmount = 0;
+    items.map((item, index) => {
       console.log("itemitemitem", item);
       const arr = [];
       const createdAt = item["createdAt"];
-      const date = moment(createdAt).format("DD/MM/YYYY");
+      arr.push(index + 1);
+
+      // var date1 = moment.unix(createdAt).format("MM/DD/YYYY");
+
+      // const date = moment(createdAt).format("DD-MM-YYYY hh:mm:ss");
+      const date = momentTime.tz(moment.unix(createdAt / 1000), "Asia/Calcutta").format("ddd MMMM D YYYY HH:mm:ss");
+
+      console.log("datedate", date);
       arr.push(date);
+      arr.push(item.userName);
+
       arr.push(item["customerName"]);
 
       const amount = item["amount"].toLocaleString();
@@ -46,26 +60,36 @@ const createPdf = async (items, type) => {
 
       if (item.type === "DEBIT") {
         arr.push(amount);
+        debitAmount = debitAmount + item["amount"];
       } else {
         arr.push(0);
       }
       if (item.type === "CREDIT") {
         arr.push(amount);
+        creditAmount = creditAmount + item["amount"];
       } else {
         arr.push(0);
       }
       arr.push(updatedBalance);
 
-      console.log("arrarrarr", arr);
+      console.log("arrarrarr", creditAmount, debitAmount, arr);
       newArr.push(arr);
     });
+    let totalBal = 0;
+    if (debitAmount > creditAmount) {
+      totalBal = debitAmount - creditAmount;
+    } else {
+      totalBal = creditAmount - debitAmount;
+    }
     let doc = new PDFDocument({margin: 20, size: "A4"});
-    generateHeader(doc); // Invoke `generateHeader` function.
+    generateHeader(doc, newArr.length); // Invoke `generateHeader` function.
 
     // doc.pipe(fs.createWriteStream('./document.pdf'));
 
     const table = {
       title: {label: "Transactions", fontSize: 20, color: "#2C53D6"},
+      subtitle: {label: `Total Transactions: ${newArr.length}                                    Total Amount: ${totalBal} `, fontSize: 10},
+
       headers: columns,
       divider: {
         header: {disabled: true},
@@ -81,7 +105,7 @@ const createPdf = async (items, type) => {
     };
     await doc.table(table, {
       width: 100,
-      columnsSize: [80, 80, 80, 80, 80],
+      columnsSize: [40, 100, 60, 60, 60, 60, 80],
     });
 
     doc.end();
@@ -138,8 +162,9 @@ const getIdsArr = (userIds) => {
   }
   return idStr;
 };
-const getTransactionsByUserIds = async (userIds, queryStringParameters) => {
+const getTransactionsByUserIds = async (userIds, queryStringParameters, teamMemberIdWithName) => {
   try {
+    console.log("teamMemberIdWithName", teamMemberIdWithName);
     // if (Array.isArray(userIds)) {
     //   userIds.forEach((id, index) => {
     //     if (index === userIds.length - 1) {
@@ -161,11 +186,11 @@ const getTransactionsByUserIds = async (userIds, queryStringParameters) => {
       const toDateVal = parseInt(toDate);
       const tableName = process.env.TRANSACTIONS_TABLE;
       // str = 'SELECT createdAt, type, customerName, amount,updatedBal  FROM "transactions-prod" WHERE "userId" IN [' + idStr + "] and createdAt BETWEEN " + fromDateVal + " and " + toDateVal + "";
-      str = `SELECT createdAt, type, customerName, amount,updatedBal  FROM "${tableName}" WHERE "userId" IN [${idStr}] and createdAt BETWEEN ${fromDateVal} and ${toDateVal}`;
+      str = `SELECT userId, createdAt,type, customerName, amount,updatedBal  FROM "${tableName}" WHERE "userId" IN [${idStr}] and createdAt BETWEEN ${fromDateVal} and ${toDateVal} `;
     } else {
-      str = `SELECT createdAt, type,customerName, amount ,updatedBal FROM "${tableName}" WHERE "userId" IN [${idStr}]`;
+      str = `SELECT userId, createdAt, type,customerName, amount ,updatedBal FROM "${tableName}" WHERE "userId" IN [${idStr}]`;
     }
-    console.log("pppppp", str);
+    console.log("strstr", str);
     const {Items = []} = await ddb
       .executeStatement({
         Statement: str,
@@ -173,7 +198,18 @@ const getTransactionsByUserIds = async (userIds, queryStringParameters) => {
       .promise();
     const userTransactions = Items.map(AWS.DynamoDB.Converter.unmarshall);
     console.log("userTransactionsuserTransactions", userTransactions);
-    return userTransactions;
+    const sortedTransactions = userTransactions.sort(function (x, y) {
+      return y.createdAt - x.createdAt;
+    });
+    console.log("sortedTransactions", userTransactions, sortedTransactions);
+    // const transactionsArr = [];
+    const transactionsArr = sortedTransactions.map((trans) => {
+      const user = teamMemberIdWithName.find((member) => member.id === trans.userId);
+      console.log("useruser", user);
+      return {...trans, userName: user.name};
+    });
+    console.log("99transactionsArr", transactionsArr);
+    return transactionsArr;
   } catch (err) {
     const body = JSON.stringify({
       status: 400,
@@ -236,8 +272,9 @@ const uploadToS3 = (type, doc, path) => {
     console.log("errrr", err);
   }
 };
-const getandSendTransactions = async (ids, queryStringParameters, docType) => {
-  const allTransactions = await getTransactionsByUserIds(ids, queryStringParameters);
+const getandSendTransactions = async (ids, queryStringParameters, docType, teamMemberIdWithName) => {
+  console.log("ppteamMemberIdWithName", teamMemberIdWithName);
+  const allTransactions = await getTransactionsByUserIds(ids, queryStringParameters, teamMemberIdWithName);
   console.log("allTransactions111", allTransactions, Array.isArray(allTransactions));
   if (Array.isArray(allTransactions)) {
     return getDocOfTransactions(docType, allTransactions);
@@ -310,17 +347,37 @@ const getDocOfTransactions = (docType, transData) => {
 
 const getAllOwnerTransactions = async (event, docType) => {
   try {
+    console.log("pppp", docType);
     const ownerId = event.queryStringParameters?.ownerId;
+    console.log("ownerIdownerId", ownerId);
+    const ownerparams = {
+      TableName: process.env.USERS_TABLE,
+      Key: {
+        id: ownerId,
+      },
+    };
+    const ownerResult = await dynamoDb.get(ownerparams).promise();
+    console.log("ownerResult", ownerResult);
+    if (ownerResult?.Item) {
+      const params = getTeamMembersByOwnerId(ownerId);
+      const allTeamMembersOfOwner = await dynamoDb.query(params).promise();
+      console.log("allTeamMembersOfOwner", allTeamMembersOfOwner);
+      if (allTeamMembersOfOwner && allTeamMembersOfOwner?.Items?.length) {
+        const teamMemberIds = allTeamMembersOfOwner.Items.map((item) => item.id);
+        const teamMemberIdWithName = allTeamMembersOfOwner.Items.map((item) => ({
+          id: item.id,
+          name: item.name,
+        }));
+        console.log("teamMemberIdWithName", teamMemberIdWithName);
+        teamMemberIds.push(ownerId);
+        teamMemberIdWithName.push({name: ownerResult.Item.name, id: ownerResult.Item.id});
+        console.log("teamMemberIdWithNameteamMemberIdWithName", teamMemberIdWithName);
+        return getandSendTransactions(teamMemberIds, event.queryStringParameters, docType, teamMemberIdWithName);
+      } else {
+        let teamMemberIdWithName = [{name: ownerResult.Item.name, id: ownerResult.Item.id}];
 
-    const params = getTeamMembersByOwnerId(ownerId);
-    const allTeamMembersOfOwner = await dynamoDb.query(params).promise();
-    console.log("allTeamMembersOfOwner", allTeamMembersOfOwner);
-    if (allTeamMembersOfOwner && allTeamMembersOfOwner?.Items?.length) {
-      const teamMemberIds = allTeamMembersOfOwner.Items.map((item) => item.id);
-      teamMemberIds.push(ownerId);
-      return getandSendTransactions(teamMemberIds, event.queryStringParameters, docType);
-    } else {
-      return getandSendTransactions(ownerId, event.queryStringParameters, docType);
+        return getandSendTransactions(ownerId, event.queryStringParameters, docType, teamMemberIdWithName);
+      }
     }
   } catch (err) {
     console.log("eeeeee", err);
@@ -352,8 +409,23 @@ module.exports.getTransactionsReport = async (event, context, callback) => {
     } else {
       const userId = event.queryStringParameters?.type;
       console.log("userIduserId", userId);
-
-      return getandSendTransactions(userId, event.queryStringParameters, docType);
+      const userParams = {
+        TableName: process.env.USERS_TABLE,
+        Key: {
+          id: userId,
+        },
+      };
+      const userResult = await dynamoDb.get(userParams).promise();
+      if (userResult?.Item) {
+        const userIdWithName = [{id: userId, name: userResult.Item.name}];
+        return getandSendTransactions(userId, event.queryStringParameters, docType, userIdWithName);
+      } else {
+        const body = JSON.stringify({
+          message: "user id not found",
+          status: 400,
+        });
+        return sendFailureResponse(body);
+      }
     }
 
     // if (event.queryStringParameters.fromDate) {
@@ -378,11 +450,12 @@ const getTeamMembersByOwnerId = (ownerId, options) => {
     IndexName: "ownerIdIdx",
     ExpressionAttributeNames: {
       "#ownerIdIdx": "ownerId",
+      "#c": "name",
     },
     ExpressionAttributeValues: {
       ":ownerId": ownerId,
     },
     TableName: process.env.USERS_TABLE,
-    ProjectionExpression: "id,ownerId",
+    ProjectionExpression: "id,ownerId, #c",
   };
 };
