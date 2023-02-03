@@ -39,3 +39,13 @@ module.exports.sendAlreadyExistSuccessResponse = (body) => {
     body: body,
   };
 };
+
+module.exports.sendSuccessMessageResponse = (res, body) => {
+  res.status(body.status).send(body);
+  return;
+};
+
+module.exports.sendFailureResponseMessage = (res, body) => {
+  res.status(body.status).send(body);
+  return;
+};

@@ -8,12 +8,14 @@ provider:
   runtime: nodejs14.x
   stage: ${opt:stage, 'dev'}
   region: ap-south-1
+  versionFunctions: false
   environment:
     CURRENTSTAGE: ${opt:stage, self:provider.stage}
     USERS_TABLE: users-${opt:stage, self:provider.stage}
     TRANSACTIONS_TABLE: transactions-${opt:stage, self:provider.stage}
     OTP_TABLE: otp-${opt:stage, self:provider.stage}
     CUSTOMERS_TABLE: customers-${opt:stage, self:provider.stage}
+    WEEKLYBAL_TABLE: weeklyBal-${opt:stage, self:provider.stage}
   iamRoleStatements:
     - Effect: Allow
       Action:
@@ -32,6 +34,17 @@ provider:
         - cognito-idp:AdminDeleteUser
       Resource: "*"
 functions:
+  app:
+    handler: server.run
+    events:
+      - http:
+          path: /
+          method: ANY
+          cors: true
+      - http:
+          path: /{proxy+}
+          method: ANY
+          cors: true
   createUser:
     handler: api/user.createUser
     events:
@@ -303,5 +316,34 @@ resources:
             #   WriteCapacityUnits: 5
         BillingMode: PAY_PER_REQUEST
         TableName: ${self:provider.environment.CUSTOMERS_TABLE}
+    WeeklyBalTable:
+      Type: "AWS::DynamoDB::Table"
+      DeletionPolicy: Delete
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: "id"
+            AttributeType: "S"
+          - AttributeName: "userId"
+            AttributeType: "S"
+          - AttributeName: "weekDate"
+            AttributeType: "N"
+        KeySchema:
+          - AttributeName: "id"
+            KeyType: "HASH"
+        GlobalSecondaryIndexes:
+          - IndexName: userIdIdx
+            KeySchema:
+              - AttributeName: "userId"
+                KeyType: "HASH"
+              - AttributeName: "weekDate"
+                KeyType: "RANGE"
+            Projection:
+              ProjectionType: "ALL"
+            # ProvisionedThroughput:
+            #   ReadCapacityUnits: 5
+            #   WriteCapacityUnits: 5
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:provider.environment.WEEKLYBAL_TABLE}
 plugins:
   - serverless-offline
+  - serverless-prune-plugin
